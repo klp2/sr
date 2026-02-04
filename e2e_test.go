@@ -1,0 +1,151 @@
+package main
+
+import (
+	"encoding/json"
+	"os/exec"
+	"strings"
+	"testing"
+)
+
+func TestE2E_BasicLookup(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode")
+	}
+
+	cmd := exec.Command("go", "run", ".", "8.8.8.8/32")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("command failed: %v\noutput: %s", err, output)
+	}
+
+	outStr := string(output)
+	if !strings.Contains(outStr, "8.8.8.8") {
+		t.Errorf("output missing 8.8.8.8: %s", outStr)
+	}
+	if !strings.Contains(outStr, "dns.google") {
+		t.Errorf("output missing dns.google: %s", outStr)
+	}
+}
+
+func TestE2E_JSONOutput(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode")
+	}
+
+	cmd := exec.Command("go", "run", ".", "-o", "json", "8.8.8.8/32")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("command failed: %v\noutput: %s", err, output)
+	}
+
+	var results []JSONResult
+	if err := json.Unmarshal(output, &results); err != nil {
+		t.Fatalf("failed to parse JSON: %v\noutput: %s", err, output)
+	}
+
+	if len(results) != 1 {
+		t.Errorf("got %d results, want 1", len(results))
+	}
+
+	if results[0].IP != "8.8.8.8" {
+		t.Errorf("IP = %s, want 8.8.8.8", results[0].IP)
+	}
+
+	if results[0].PTR == nil || *results[0].PTR != "dns.google" {
+		t.Errorf("PTR = %v, want dns.google", results[0].PTR)
+	}
+}
+
+func TestE2E_MultipleCIDRs(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode")
+	}
+
+	cmd := exec.Command("go", "run", ".", "--sort", "8.8.8.8/32", "8.8.4.4/32")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("command failed: %v\noutput: %s", err, output)
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if len(lines) != 2 {
+		t.Errorf("got %d lines, want 2", len(lines))
+	}
+
+	// Should be sorted: 8.8.4.4 before 8.8.8.8
+	if !strings.HasPrefix(lines[0], "8.8.4.4") {
+		t.Errorf("first line = %q, want to start with 8.8.4.4", lines[0])
+	}
+}
+
+func TestE2E_ResolvedOnly(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode")
+	}
+
+	// 8.8.8.8/30 gives 8.8.8.8-8.8.8.11, only 8.8.8.8 has PTR
+	cmd := exec.Command("go", "run", ".", "--resolved-only", "8.8.8.8/30")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("command failed: %v\noutput: %s", err, output)
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if len(lines) != 1 {
+		t.Errorf("got %d lines, want 1 (only resolved): %s", len(lines), output)
+	}
+
+	if !strings.Contains(lines[0], "8.8.8.8") {
+		t.Errorf("line = %q, want 8.8.8.8", lines[0])
+	}
+}
+
+func TestE2E_InvalidCIDR(t *testing.T) {
+	cmd := exec.Command("go", "run", ".", "not-a-cidr")
+	output, err := cmd.CombinedOutput()
+
+	if err == nil {
+		t.Error("expected error for invalid CIDR, got success")
+	}
+
+	if !strings.Contains(string(output), "invalid CIDR") {
+		t.Errorf("output = %s, want to contain 'invalid CIDR'", output)
+	}
+}
+
+func TestE2E_MutuallyExclusiveFlags(t *testing.T) {
+	cmd := exec.Command("go", "run", ".", "--resolved-only", "--nxdomain-only", "8.8.8.8/32")
+	output, err := cmd.CombinedOutput()
+
+	if err == nil {
+		t.Error("expected error for mutually exclusive flags")
+	}
+
+	if !strings.Contains(string(output), "mutually exclusive") {
+		t.Errorf("output = %s, want to contain 'mutually exclusive'", output)
+	}
+}
+
+func TestE2E_Help(t *testing.T) {
+	cmd := exec.Command("go", "run", ".", "--help")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("command failed: %v\noutput: %s", err, output)
+	}
+
+	outStr := string(output)
+	requiredStrings := []string{
+		"PTR lookups",
+		"--concurrency",
+		"--output",
+		"--resolved-only",
+		"--nxdomain-only",
+		"--sort",
+	}
+
+	for _, s := range requiredStrings {
+		if !strings.Contains(outStr, s) {
+			t.Errorf("help output missing %q", s)
+		}
+	}
+}
