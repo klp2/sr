@@ -98,6 +98,60 @@ func TestFormatText(t *testing.T) {
 	}
 }
 
+func TestFormatTextIPv6(t *testing.T) {
+	results := []LookupResult{
+		{IP: net.ParseIP("2001:4860:4860::8888"), PTR: "dns.google"},
+		{IP: net.ParseIP("2001:db8::1"), PTR: ""},
+	}
+
+	var buf bytes.Buffer
+	err := FormatText(&buf, results)
+	if err != nil {
+		t.Fatalf("FormatText error: %v", err)
+	}
+
+	output := buf.String()
+
+	// Check IPv6 addresses are present
+	if !strings.Contains(output, "2001:4860:4860::8888") {
+		t.Errorf("output missing IPv6 address")
+	}
+	if !strings.Contains(output, "dns.google") {
+		t.Errorf("output missing PTR for IPv6")
+	}
+	if !strings.Contains(output, "2001:db8::1") {
+		t.Errorf("output missing second IPv6 address")
+	}
+}
+
+func TestFormatTextMixedAlignment(t *testing.T) {
+	// Test that mixed IPv4/IPv6 results align properly
+	results := []LookupResult{
+		{IP: net.ParseIP("8.8.8.8"), PTR: "dns.google"},
+		{IP: net.ParseIP("2001:4860:4860::8888"), PTR: "dns.google"},
+	}
+
+	var buf bytes.Buffer
+	err := FormatText(&buf, results)
+	if err != nil {
+		t.Fatalf("FormatText error: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("got %d lines, want 2", len(lines))
+	}
+
+	// The IPv6 address is longer, so both lines should have the same alignment
+	// Find where "dns.google" starts in each line
+	pos1 := strings.Index(lines[0], "dns.google")
+	pos2 := strings.Index(lines[1], "dns.google")
+
+	if pos1 != pos2 {
+		t.Errorf("misaligned columns: IPv4 PTR at %d, IPv6 PTR at %d\nlines:\n%s", pos1, pos2, buf.String())
+	}
+}
+
 func TestFormatJSON(t *testing.T) {
 	results := []LookupResult{
 		{IP: net.ParseIP("192.168.1.1"), PTR: "host1.example.com"},

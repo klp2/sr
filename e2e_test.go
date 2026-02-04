@@ -141,11 +141,104 @@ func TestE2E_Help(t *testing.T) {
 		"--resolved-only",
 		"--nxdomain-only",
 		"--sort",
+		"--max-ips",
+		"IPv6",
 	}
 
 	for _, s := range requiredStrings {
 		if !strings.Contains(outStr, s) {
 			t.Errorf("help output missing %q", s)
 		}
+	}
+}
+
+func TestE2E_IPv6Lookup(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode")
+	}
+
+	// Google's public DNS IPv6 address
+	cmd := exec.Command("go", "run", ".", "2001:4860:4860::8888/128")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("command failed: %v\noutput: %s", err, output)
+	}
+
+	outStr := string(output)
+	if !strings.Contains(outStr, "2001:4860:4860::8888") {
+		t.Errorf("output missing IPv6 address: %s", outStr)
+	}
+	// Google's IPv6 DNS usually resolves to dns.google
+	if !strings.Contains(outStr, "dns.google") {
+		t.Errorf("output missing expected PTR dns.google: %s", outStr)
+	}
+}
+
+func TestE2E_IPv6Range(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode")
+	}
+
+	// Small range - /126 gives 4 addresses
+	cmd := exec.Command("go", "run", ".", "2001:4860:4860::8888/126")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("command failed: %v\noutput: %s", err, output)
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if len(lines) != 4 {
+		t.Errorf("got %d lines, want 4 for /126: %s", len(lines), output)
+	}
+}
+
+func TestE2E_MaxIPsTruncates(t *testing.T) {
+	// A /24 (256 addresses) with limit of 10 should truncate
+	cmd := exec.Command("go", "run", ".", "--max-ips", "10", "192.168.1.0/24")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("command failed: %v\noutput: %s", err, output)
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if len(lines) != 10 {
+		t.Errorf("got %d lines, want 10 (truncated): %s", len(lines), output)
+	}
+}
+
+func TestE2E_MaxIPsAllowed(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode")
+	}
+
+	// /30 gives 4 IPs, well under limit of 10
+	cmd := exec.Command("go", "run", ".", "--max-ips", "10", "8.8.8.0/30")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("command failed: %v\noutput: %s", err, output)
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if len(lines) != 4 {
+		t.Errorf("got %d lines, want 4: %s", len(lines), output)
+	}
+}
+
+func TestE2E_HugeIPv6Truncated(t *testing.T) {
+	// A /64 has 2^64 addresses - should be truncated to --max-ips
+	cmd := exec.Command("go", "run", ".", "--max-ips", "10", "2001:db8::/64")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("command failed: %v\noutput: %s", err, output)
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if len(lines) != 10 {
+		t.Errorf("got %d lines, want 10 (truncated): %s", len(lines), output)
+	}
+
+	// Verify first few addresses are sequential
+	if !strings.HasPrefix(lines[0], "2001:db8::") {
+		t.Errorf("first line = %q, want to start with 2001:db8::", lines[0])
 	}
 }

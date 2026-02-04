@@ -42,14 +42,24 @@ func SortResults(results []LookupResult) {
 
 // FormatText writes results in plain text format.
 func FormatText(w io.Writer, results []LookupResult) error {
+	// Calculate the maximum IP width for alignment
+	// IPv4 max is 15 chars, IPv6 max is 39 chars
+	width := 15
+	for _, r := range results {
+		if len(r.IP.String()) > width {
+			width = len(r.IP.String())
+		}
+	}
+
+	format := fmt.Sprintf("%%-%ds %%s\n", width)
 	for _, r := range results {
 		var err error
 		if r.Error != nil {
-			_, err = fmt.Fprintf(w, "%-15s ERROR: %v\n", r.IP, r.Error)
+			_, err = fmt.Fprintf(w, format, r.IP, "ERROR: "+r.Error.Error())
 		} else if r.PTR != "" {
-			_, err = fmt.Fprintf(w, "%-15s %s\n", r.IP, r.PTR)
+			_, err = fmt.Fprintf(w, format, r.IP, r.PTR)
 		} else {
-			_, err = fmt.Fprintf(w, "%-15s NXDOMAIN\n", r.IP)
+			_, err = fmt.Fprintf(w, format, r.IP, "NXDOMAIN")
 		}
 		if err != nil {
 			return err

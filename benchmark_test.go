@@ -9,25 +9,25 @@ import (
 
 func BenchmarkExpandCIDR_32(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		_, _ = ExpandCIDR("192.168.1.1/32")
+		_, _ = ExpandCIDR("192.168.1.1/32", 0)
 	}
 }
 
 func BenchmarkExpandCIDR_30(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		_, _ = ExpandCIDR("192.168.1.0/30")
+		_, _ = ExpandCIDR("192.168.1.0/30", 0)
 	}
 }
 
 func BenchmarkExpandCIDR_24(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		_, _ = ExpandCIDR("192.168.1.0/24")
+		_, _ = ExpandCIDR("192.168.1.0/24", 0)
 	}
 }
 
 func BenchmarkExpandCIDR_16(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		_, _ = ExpandCIDR("192.168.0.0/16")
+		_, _ = ExpandCIDR("192.168.0.0/16", 0)
 	}
 }
 
@@ -39,7 +39,7 @@ func BenchmarkLookupWorkers(b *testing.B) {
 		resolver.AddNXDomain(ip)
 	}
 
-	ips, _ := ExpandCIDR("192.168.1.0/24")
+	ips, _ := ExpandCIDR("192.168.1.0/24", 0)
 	ctx := context.Background()
 
 	b.ResetTimer()
@@ -58,7 +58,7 @@ func BenchmarkLookupWorkers_Concurrency(b *testing.B) {
 		resolver.AddNXDomain(ip)
 	}
 
-	ips, _ := ExpandCIDR("192.168.1.0/24")
+	ips, _ := ExpandCIDR("192.168.1.0/24", 0)
 	ctx := context.Background()
 
 	concurrencies := []int{1, 10, 50, 100, 200}

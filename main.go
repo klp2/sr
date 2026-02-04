@@ -14,6 +14,7 @@ var (
 	resolvedOnly bool
 	nxdomainOnly bool
 	sortOutput   bool
+	maxIPs       uint64
 )
 
 func main() {
@@ -23,10 +24,21 @@ func main() {
 		Long: `sr (ShowReverse) performs bulk PTR lookups on IP addresses
 specified in CIDR notation. It uses concurrent lookups for speed.
 
+Supports both IPv4 and IPv6 addresses. Note that many IPv6 addresses
+won't have PTR records - ISPs typically can't maintain individual
+records for the vast IPv6 address space.
+
+Large CIDR ranges are automatically truncated to --max-ips addresses,
+allowing you to sample huge ranges like IPv6 /64 without errors.
+
 Examples:
   sr 8.8.8.0/30
   sr -c 100 192.168.1.0/24
-  sr -o json --resolved-only 10.0.0.0/24`,
+  sr -o json --resolved-only 10.0.0.0/24
+  sr 2001:4860:4860::8888/128       # Google DNS IPv6
+  sr 2001:db8::/126                 # Small IPv6 range (4 addresses)
+  sr --max-ips 1000000 10.0.0.0/8   # Override default limit
+  sr --max-ips 100 2001:db8::/64    # Sample first 100 of huge range`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: run,
 	}
@@ -36,6 +48,7 @@ Examples:
 	rootCmd.Flags().BoolVar(&resolvedOnly, "resolved-only", false, "Only show IPs with PTR records")
 	rootCmd.Flags().BoolVar(&nxdomainOnly, "nxdomain-only", false, "Only show IPs without PTR records")
 	rootCmd.Flags().BoolVar(&sortOutput, "sort", false, "Sort output by IP address")
+	rootCmd.Flags().Uint64Var(&maxIPs, "max-ips", 65536, "Maximum IPs to process (large ranges truncated to this)")
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -57,7 +70,7 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 
 	// Parse CIDR blocks
-	ips, err := ParseCIDRs(args)
+	ips, err := ParseCIDRs(args, maxIPs)
 	if err != nil {
 		return err
 	}

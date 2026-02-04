@@ -1,14 +1,58 @@
 package main
 
 import (
+	"math"
 	"net"
 	"testing"
 )
+
+func TestCIDRSize(t *testing.T) {
+	tests := []struct {
+		name     string
+		cidr     string
+		wantSize uint64
+		wantErr  bool
+	}{
+		{"IPv4 /32", "192.168.1.1/32", 1, false},
+		{"IPv4 /30", "192.168.1.0/30", 4, false},
+		{"IPv4 /24", "10.0.0.0/24", 256, false},
+		{"IPv4 /16", "172.16.0.0/16", 65536, false},
+		{"IPv6 /128", "2001:db8::1/128", 1, false},
+		{"IPv6 /126", "2001:db8::/126", 4, false},
+		{"IPv6 /120", "2001:db8::/120", 256, false},
+		{"IPv6 /64 returns sentinel", "2001:db8::/64", math.MaxUint64, false},
+		{"IPv6 /0 returns sentinel", "::/0", math.MaxUint64, false},
+		{"invalid CIDR", "not-a-cidr", 0, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			size, err := CIDRSize(tt.cidr)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("CIDRSize(%q) expected error, got nil", tt.cidr)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("CIDRSize(%q) unexpected error: %v", tt.cidr, err)
+				return
+			}
+
+			if size != tt.wantSize {
+				t.Errorf("CIDRSize(%q) = %d, want %d", tt.cidr, size, tt.wantSize)
+			}
+		})
+	}
+}
 
 func TestExpandCIDR(t *testing.T) {
 	tests := []struct {
 		name    string
 		cidr    string
+		maxIPs  uint64
 		wantLen int
 		wantErr bool
 		wantIPs []string // optional: specific IPs to check
@@ -45,11 +89,63 @@ func TestExpandCIDR(t *testing.T) {
 			cidr:    "999.999.999.999/24",
 			wantErr: true,
 		},
+		// IPv6 tests
+		{
+			name:    "IPv6 single /128",
+			cidr:    "2001:db8::1/128",
+			wantLen: 1,
+			wantIPs: []string{"2001:db8::1"},
+		},
+		{
+			name:    "IPv6 /126 gives 4 IPs",
+			cidr:    "2001:db8::/126",
+			wantLen: 4,
+			wantIPs: []string{"2001:db8::", "2001:db8::1", "2001:db8::2", "2001:db8::3"},
+		},
+		{
+			name:    "IPv6 /120 gives 256 IPs",
+			cidr:    "2001:db8::/120",
+			wantLen: 256,
+		},
+		// maxIPs limit tests
+		{
+			name:    "truncates to maxIPs limit",
+			cidr:    "10.0.0.0/24",
+			maxIPs:  100,
+			wantLen: 100,
+			wantIPs: []string{"10.0.0.0", "10.0.0.1"}, // verify first IPs
+		},
+		{
+			name:    "within maxIPs limit",
+			cidr:    "10.0.0.0/30",
+			maxIPs:  100,
+			wantLen: 4,
+		},
+		{
+			name:    "maxIPs zero means no limit",
+			cidr:    "10.0.0.0/24",
+			maxIPs:  0,
+			wantLen: 256,
+		},
+		// Huge range truncation tests
+		{
+			name:    "huge IPv6 range truncated",
+			cidr:    "2001:db8::/64",
+			maxIPs:  10,
+			wantLen: 10,
+			wantIPs: []string{"2001:db8::", "2001:db8::1", "2001:db8::2"},
+		},
+		{
+			name:    "huge IPv6 range with larger limit",
+			cidr:    "2001:db8::/64",
+			maxIPs:  1000,
+			wantLen: 1000,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ips, err := ExpandCIDR(tt.cidr)
+			ips, err := ExpandCIDR(tt.cidr, tt.maxIPs)
 
 			if tt.wantErr {
 				if err == nil {
@@ -86,6 +182,7 @@ func TestParseCIDRs(t *testing.T) {
 	tests := []struct {
 		name    string
 		cidrs   []string
+		maxIPs  uint64
 		wantLen int
 		wantErr bool
 	}{
@@ -109,11 +206,48 @@ func TestParseCIDRs(t *testing.T) {
 			cidrs:   []string{"192.168.1.0/30", "invalid"},
 			wantErr: true,
 		},
+		// IPv6 tests
+		{
+			name:    "IPv6 single CIDR",
+			cidrs:   []string{"2001:db8::/126"},
+			wantLen: 4,
+		},
+		{
+			name:    "mixed IPv4 and IPv6",
+			cidrs:   []string{"192.168.1.0/30", "2001:db8::/126"},
+			wantLen: 8,
+		},
+		// maxIPs limit tests
+		{
+			name:    "total truncated to maxIPs",
+			cidrs:   []string{"192.168.1.0/30", "10.0.0.0/30"}, // 8 total
+			maxIPs:  5,
+			wantLen: 5, // truncated: 4 from first, 1 from second
+		},
+		{
+			name:    "total within maxIPs",
+			cidrs:   []string{"192.168.1.0/30", "10.0.0.0/30"}, // 8 total
+			maxIPs:  10,
+			wantLen: 8,
+		},
+		// Huge range tests
+		{
+			name:    "huge range truncated",
+			cidrs:   []string{"2001:db8::/64"},
+			maxIPs:  50,
+			wantLen: 50,
+		},
+		{
+			name:    "mixed normal and huge range",
+			cidrs:   []string{"192.168.1.0/30", "2001:db8::/64"},
+			maxIPs:  10,
+			wantLen: 10, // 4 from first, 6 from second
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ips, err := ParseCIDRs(tt.cidrs)
+			ips, err := ParseCIDRs(tt.cidrs, tt.maxIPs)
 
 			if tt.wantErr {
 				if err == nil {
@@ -139,16 +273,26 @@ func TestIncIP(t *testing.T) {
 		name string
 		ip   string
 		want string
+		isV6 bool
 	}{
-		{"simple increment", "192.168.1.1", "192.168.1.2"},
-		{"byte overflow", "192.168.1.255", "192.168.2.0"},
-		{"multiple overflow", "192.168.255.255", "192.169.0.0"},
-		{"max IP", "255.255.255.255", "0.0.0.0"},
+		{"simple increment", "192.168.1.1", "192.168.1.2", false},
+		{"byte overflow", "192.168.1.255", "192.168.2.0", false},
+		{"multiple overflow", "192.168.255.255", "192.169.0.0", false},
+		{"max IP", "255.255.255.255", "0.0.0.0", false},
+		// IPv6 tests
+		{"IPv6 simple increment", "2001:db8::1", "2001:db8::2", true},
+		{"IPv6 byte overflow", "2001:db8::ff", "2001:db8::100", true},
+		{"IPv6 segment overflow", "2001:db8::ffff", "2001:db8::1:0", true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ip := net.ParseIP(tt.ip).To4()
+			var ip net.IP
+			if tt.isV6 {
+				ip = net.ParseIP(tt.ip)
+			} else {
+				ip = net.ParseIP(tt.ip).To4()
+			}
 			incIP(ip)
 			if ip.String() != tt.want {
 				t.Errorf("incIP(%s) = %s, want %s", tt.ip, ip, tt.want)
