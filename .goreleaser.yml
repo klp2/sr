@@ -46,6 +46,18 @@ changelog:
       - Merge pull request
       - Merge branch
 
+brews:
+  - repository:
+      owner: klp2
+      name: homebrew-sr
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/klp2/sr"
+    description: "Bulk reverse DNS (PTR) lookups on CIDR ranges"
+    license: "MIT"
+    test: |
+      assert_match "sr (ShowReverse)", shell_output("#{bin}/sr --help")
+
 release:
   github:
     owner: klp2
