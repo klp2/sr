@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 var (
@@ -96,9 +98,31 @@ func run(cmd *cobra.Command, args []string) error {
 	resultChan := LookupWorkers(ctx, ips, concurrency, resolver)
 
 	// Collect results
-	results := make([]LookupResult, 0, len(ips))
-	for result := range resultChan {
-		results = append(results, result)
+	total := len(ips)
+	results := make([]LookupResult, 0, total)
+	showProgress := term.IsTerminal(int(os.Stderr.Fd()))
+
+	if showProgress {
+		start := time.Now()
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+
+		for result := range resultChan {
+			results = append(results, result)
+			select {
+			case <-ticker.C:
+				if time.Since(start) >= 2*time.Second {
+					fmt.Fprintf(os.Stderr, "\rLooking up IPs... %d/%d (%d%%)", len(results), total, 100*len(results)/total)
+				}
+			default:
+			}
+		}
+		// Clear the progress line
+		fmt.Fprintf(os.Stderr, "\r%-60s\r", "")
+	} else {
+		for result := range resultChan {
+			results = append(results, result)
+		}
 	}
 
 	// Output results
