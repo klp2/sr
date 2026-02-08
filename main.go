@@ -45,10 +45,10 @@ Examples:
 
 	rootCmd.Flags().IntVarP(&concurrency, "concurrency", "c", 50, "Number of concurrent lookups")
 	rootCmd.Flags().StringVarP(&outputFormat, "output", "o", "text", "Output format: text, json")
-	rootCmd.Flags().BoolVar(&resolvedOnly, "resolved-only", false, "Only show IPs with PTR records")
-	rootCmd.Flags().BoolVar(&nxdomainOnly, "nxdomain-only", false, "Only show IPs without PTR records")
-	rootCmd.Flags().BoolVar(&sortOutput, "sort", false, "Sort output by IP address")
-	rootCmd.Flags().Uint64Var(&maxIPs, "max-ips", 65536, "Maximum IPs to process (large ranges truncated to this)")
+	rootCmd.Flags().BoolVarP(&resolvedOnly, "resolved-only", "r", false, "Only show IPs with PTR records")
+	rootCmd.Flags().BoolVarP(&nxdomainOnly, "nxdomain-only", "n", false, "Only show IPs without PTR records")
+	rootCmd.Flags().BoolVarP(&sortOutput, "sort", "s", false, "Sort output by IP address")
+	rootCmd.Flags().Uint64VarP(&maxIPs, "max-ips", "m", 65536, "Maximum IPs to process (large ranges truncated to this)")
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
