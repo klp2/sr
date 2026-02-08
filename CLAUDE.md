@@ -38,5 +38,4 @@ Phase 2 stuff that's not done yet:
 - CSV output
 - IPv6 support
 - Stdin input
-- Progress indicator
 - TTL-based caching
