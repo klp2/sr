@@ -32,7 +32,8 @@ func TestE2E_JSONOutput(t *testing.T) {
 		t.Skip("skipping e2e test in short mode")
 	}
 
-	cmd := exec.Command("go", "run", ".", "-o", "json", "8.8.8.8/32")
+	// Expanded JSON uses the per-IP format
+	cmd := exec.Command("go", "run", ".", "-e", "-o", "json", "8.8.8.8/32")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("command failed: %v\noutput: %s", err, output)
@@ -61,7 +62,7 @@ func TestE2E_MultipleCIDRs(t *testing.T) {
 		t.Skip("skipping e2e test in short mode")
 	}
 
-	cmd := exec.Command("go", "run", ".", "--sort", "8.8.8.8/32", "8.8.4.4/32")
+	cmd := exec.Command("go", "run", ".", "--expand", "--sort", "8.8.8.8/32", "8.8.4.4/32")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("command failed: %v\noutput: %s", err, output)
@@ -206,7 +207,7 @@ func TestE2E_ShortFlags(t *testing.T) {
 
 func TestE2E_ShortMaxIPs(t *testing.T) {
 	// -m should work the same as --max-ips
-	cmd := exec.Command("go", "run", ".", "-m", "10", "192.168.1.0/24")
+	cmd := exec.Command("go", "run", ".", "-e", "-m", "10", "192.168.1.0/24")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("command failed: %v\noutput: %s", err, output)
@@ -223,7 +224,7 @@ func TestE2E_ShortSort(t *testing.T) {
 		t.Skip("skipping e2e test in short mode")
 	}
 
-	cmd := exec.Command("go", "run", ".", "-s", "8.8.8.8/32", "8.8.4.4/32")
+	cmd := exec.Command("go", "run", ".", "-e", "-s", "8.8.8.8/32", "8.8.4.4/32")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("command failed: %v\noutput: %s", err, output)
@@ -266,7 +267,7 @@ func TestE2E_ShortJSONOutput(t *testing.T) {
 		t.Skip("skipping e2e test in short mode")
 	}
 
-	cmd := exec.Command("go", "run", ".", "-o", "json", "-r", "8.8.8.8/32")
+	cmd := exec.Command("go", "run", ".", "-e", "-o", "json", "-r", "8.8.8.8/32")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("command failed: %v\noutput: %s", err, output)
@@ -309,8 +310,8 @@ func TestE2E_IPv6Range(t *testing.T) {
 		t.Skip("skipping e2e test in short mode")
 	}
 
-	// Small range - /126 gives 4 addresses
-	cmd := exec.Command("go", "run", ".", "2001:4860:4860::8888/126")
+	// Small range - /126 gives 4 addresses, expanded
+	cmd := exec.Command("go", "run", ".", "--expand", "2001:4860:4860::8888/126")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("command failed: %v\noutput: %s", err, output)
@@ -324,7 +325,7 @@ func TestE2E_IPv6Range(t *testing.T) {
 
 func TestE2E_MaxIPsTruncates(t *testing.T) {
 	// A /24 (256 addresses) with limit of 10 should truncate
-	cmd := exec.Command("go", "run", ".", "--max-ips", "10", "192.168.1.0/24")
+	cmd := exec.Command("go", "run", ".", "--expand", "--max-ips", "10", "192.168.1.0/24")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("command failed: %v\noutput: %s", err, output)
@@ -342,7 +343,7 @@ func TestE2E_MaxIPsAllowed(t *testing.T) {
 	}
 
 	// /30 gives 4 IPs, well under limit of 10
-	cmd := exec.Command("go", "run", ".", "--max-ips", "10", "8.8.8.0/30")
+	cmd := exec.Command("go", "run", ".", "--expand", "--max-ips", "10", "8.8.8.0/30")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("command failed: %v\noutput: %s", err, output)
@@ -356,7 +357,7 @@ func TestE2E_MaxIPsAllowed(t *testing.T) {
 
 func TestE2E_HugeIPv6Truncated(t *testing.T) {
 	// A /64 has 2^64 addresses - should be truncated to --max-ips
-	cmd := exec.Command("go", "run", ".", "--max-ips", "10", "2001:db8::/64")
+	cmd := exec.Command("go", "run", ".", "--expand", "--max-ips", "10", "2001:db8::/64")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("command failed: %v\noutput: %s", err, output)
@@ -370,5 +371,130 @@ func TestE2E_HugeIPv6Truncated(t *testing.T) {
 	// Verify first few addresses are sequential
 	if !strings.HasPrefix(lines[0], "2001:db8::") {
 		t.Errorf("first line = %q, want to start with 2001:db8::", lines[0])
+	}
+}
+
+func TestE2E_ConsolidatedDefault(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode")
+	}
+
+	// Default (consolidated) output: 8.8.8.0/30 has 4 IPs, most without PTR
+	// Consolidated should produce fewer lines than 4
+	cmd := exec.Command("go", "run", ".", "8.8.8.0/30")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("command failed: %v\noutput: %s", err, output)
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	// Should have fewer lines than 4 (consolidated)
+	if len(lines) >= 4 {
+		t.Errorf("consolidated output should have fewer than 4 lines, got %d: %s", len(lines), output)
+	}
+	// Should still contain dns.google
+	if !strings.Contains(string(output), "dns.google") {
+		t.Errorf("output missing dns.google: %s", output)
+	}
+}
+
+func TestE2E_ExpandFlag(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode")
+	}
+
+	// --expand should produce per-IP output (4 lines for /30)
+	cmd := exec.Command("go", "run", ".", "--expand", "8.8.8.0/30")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("command failed: %v\noutput: %s", err, output)
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if len(lines) != 4 {
+		t.Errorf("got %d lines, want 4 (expanded): %s", len(lines), output)
+	}
+}
+
+func TestE2E_ExpandShortFlag(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode")
+	}
+
+	// -e should work the same as --expand
+	cmd := exec.Command("go", "run", ".", "-e", "8.8.8.0/30")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("command failed: %v\noutput: %s", err, output)
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if len(lines) != 4 {
+		t.Errorf("got %d lines, want 4 (expanded with -e): %s", len(lines), output)
+	}
+}
+
+func TestE2E_ConsolidatedResolvedOnly(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode")
+	}
+
+	// Consolidated + resolved-only: should only show entries with PTR
+	cmd := exec.Command("go", "run", ".", "-r", "8.8.8.0/30")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("command failed: %v\noutput: %s", err, output)
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if len(lines) != 1 {
+		t.Errorf("got %d lines, want 1 (consolidated resolved only): %s", len(lines), output)
+	}
+	if !strings.Contains(string(output), "dns.google") {
+		t.Errorf("output missing dns.google: %s", output)
+	}
+}
+
+func TestE2E_ConsolidatedJSON(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode")
+	}
+
+	cmd := exec.Command("go", "run", ".", "-o", "json", "8.8.8.8/32")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("command failed: %v\noutput: %s", err, output)
+	}
+
+	var results []ConsolidatedJSONResult
+	if err := json.Unmarshal(output, &results); err != nil {
+		t.Fatalf("failed to parse JSON: %v\noutput: %s", err, output)
+	}
+
+	if len(results) != 1 {
+		t.Errorf("got %d results, want 1", len(results))
+	}
+
+	// Single IP should show plain IP, not /32
+	if results[0].Network != "8.8.8.8" {
+		t.Errorf("network = %s, want 8.8.8.8", results[0].Network)
+	}
+	if results[0].PTR == nil || *results[0].PTR != "dns.google" {
+		t.Errorf("PTR = %v, want dns.google", results[0].PTR)
+	}
+}
+
+func TestE2E_HelpExpandFlag(t *testing.T) {
+	cmd := exec.Command("go", "run", ".", "--help")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("command failed: %v\noutput: %s", err, output)
+	}
+
+	outStr := string(output)
+	for _, s := range []string{"--expand", "-e,"} {
+		if !strings.Contains(outStr, s) {
+			t.Errorf("help output missing %q", s)
+		}
 	}
 }

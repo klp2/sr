@@ -126,6 +126,99 @@ func ParseCIDRs(cidrs []string, maxIPs uint64) ([]net.IP, error) {
 	return allIPs, nil
 }
 
+// copyIP returns a copy of an IP address.
+func copyIP(ip net.IP) net.IP {
+	c := make(net.IP, len(ip))
+	copy(c, ip)
+	return c
+}
+
+// trailingZeroBits counts trailing zero bits in an IP address.
+// This determines the maximum CIDR alignment for a block starting at this IP.
+func trailingZeroBits(ip net.IP) int {
+	count := 0
+	for i := len(ip) - 1; i >= 0; i-- {
+		if ip[i] == 0 {
+			count += 8
+			continue
+		}
+		b := ip[i]
+		for b&1 == 0 {
+			count++
+			b >>= 1
+		}
+		break
+	}
+	return count
+}
+
+// findContiguousRuns splits a sorted IP slice into runs of consecutive IPs
+// (each pair differs by exactly 1).
+func findContiguousRuns(sortedIPs []net.IP) [][]net.IP {
+	if len(sortedIPs) == 0 {
+		return nil
+	}
+
+	var runs [][]net.IP
+	start := 0
+
+	for i := 1; i < len(sortedIPs); i++ {
+		prev := copyIP(sortedIPs[i-1])
+		incIP(prev)
+		if !prev.Equal(sortedIPs[i]) {
+			runs = append(runs, sortedIPs[start:i])
+			start = i
+		}
+	}
+	runs = append(runs, sortedIPs[start:])
+	return runs
+}
+
+// ContiguousIPsToNetworks converts a sorted, contiguous IP slice into the
+// minimal set of CIDR blocks covering them exactly. Uses a greedy algorithm:
+// at each position, find the largest power-of-2 aligned block that fits.
+func ContiguousIPsToNetworks(ips []net.IP) []*net.IPNet {
+	if len(ips) == 0 {
+		return nil
+	}
+
+	totalBits := len(ips[0]) * 8 // 32 for IPv4, 128 for IPv6
+	var networks []*net.IPNet
+	pos := 0
+
+	for pos < len(ips) {
+		remaining := len(ips) - pos
+		alignment := trailingZeroBits(ips[pos])
+
+		// Find the largest power-of-2 block that fits
+		blockBits := 0
+		for blockBits < alignment && (1<<(blockBits+1)) <= remaining {
+			blockBits++
+		}
+
+		ones := totalBits - blockBits
+		mask := net.CIDRMask(ones, totalBits)
+		networks = append(networks, &net.IPNet{
+			IP:   copyIP(ips[pos]),
+			Mask: mask,
+		})
+
+		pos += 1 << blockBits
+	}
+
+	return networks
+}
+
+// IPsToNetworks converts a sorted IP slice (possibly non-contiguous) into
+// CIDR blocks. Splits into contiguous runs first.
+func IPsToNetworks(sortedIPs []net.IP) []*net.IPNet {
+	var networks []*net.IPNet
+	for _, run := range findContiguousRuns(sortedIPs) {
+		networks = append(networks, ContiguousIPsToNetworks(run)...)
+	}
+	return networks
+}
+
 // incIP increments an IP address in place.
 func incIP(ip net.IP) {
 	for j := len(ip) - 1; j >= 0; j-- {

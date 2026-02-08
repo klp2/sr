@@ -14,6 +14,7 @@ var (
 	resolvedOnly bool
 	nxdomainOnly bool
 	sortOutput   bool
+	expandOutput bool
 	maxIPs       uint64
 )
 
@@ -24,6 +25,10 @@ func main() {
 		Long: `sr (ShowReverse) performs bulk PTR lookups on IP addresses
 specified in CIDR notation. It uses concurrent lookups for speed.
 
+By default, IPs with the same PTR record are consolidated into CIDR
+networks, making output much more compact. Use --expand to show
+individual IPs instead.
+
 Supports both IPv4 and IPv6 addresses. Note that many IPv6 addresses
 won't have PTR records - ISPs typically can't maintain individual
 records for the vast IPv6 address space.
@@ -32,7 +37,8 @@ Large CIDR ranges are automatically truncated to --max-ips addresses,
 allowing you to sample huge ranges like IPv6 /64 without errors.
 
 Examples:
-  sr 8.8.8.0/30
+  sr 8.8.8.0/30                     # Consolidated output (default)
+  sr -e 8.8.8.0/30                  # Per-IP output (expanded)
   sr -c 100 192.168.1.0/24
   sr -o json --resolved-only 10.0.0.0/24
   sr 2001:4860:4860::8888/128       # Google DNS IPv6
@@ -47,7 +53,8 @@ Examples:
 	rootCmd.Flags().StringVarP(&outputFormat, "output", "o", "text", "Output format: text, json")
 	rootCmd.Flags().BoolVarP(&resolvedOnly, "resolved-only", "r", false, "Only show IPs with PTR records")
 	rootCmd.Flags().BoolVarP(&nxdomainOnly, "nxdomain-only", "n", false, "Only show IPs without PTR records")
-	rootCmd.Flags().BoolVarP(&sortOutput, "sort", "s", false, "Sort output by IP address")
+	rootCmd.Flags().BoolVarP(&sortOutput, "sort", "s", false, "Sort output by IP address (only with --expand)")
+	rootCmd.Flags().BoolVarP(&expandOutput, "expand", "e", false, "Show per-IP output instead of consolidated CIDRs")
 	rootCmd.Flags().Uint64VarP(&maxIPs, "max-ips", "m", 65536, "Maximum IPs to process (large ranges truncated to this)")
 
 	if err := rootCmd.Execute(); err != nil {
@@ -96,6 +103,7 @@ func run(cmd *cobra.Command, args []string) error {
 		ResolvedOnly: resolvedOnly,
 		NXDomainOnly: nxdomainOnly,
 		Sort:         sortOutput,
+		Expand:       expandOutput,
 	}
 
 	return WriteOutput(os.Stdout, results, opts)
