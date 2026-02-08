@@ -180,6 +180,77 @@ func extractPTRPattern(ip net.IP, ptr string) string {
 	return ""
 }
 
+// extractIPv6PTRPattern detects IPv6 addresses embedded in PTR hostnames
+// and returns a wildcard pattern like "*.static.isp.net". Returns "" if
+// no pattern found. ISPs use various formats: full expanded dashes
+// (2001-0db8-...-0001), compressed dashes (2001-db8--1), and reversed
+// nibble dashes (1-0-0-...-2).
+func extractIPv6PTRPattern(ip net.IP, ptr string) string {
+	if ip.To4() != nil || ptr == "" {
+		return "" // IPv4 or empty
+	}
+
+	dot := strings.IndexByte(ptr, '.')
+	if dot == -1 {
+		return ""
+	}
+	firstLabel := strings.ToLower(ptr[:dot])
+	suffix := ptr[dot+1:]
+
+	// Suffix must have at least 2 labels
+	if !strings.Contains(suffix, ".") {
+		return ""
+	}
+
+	// Generate representations to search for in the first label
+	ip16 := ip.To16()
+	if ip16 == nil {
+		return ""
+	}
+
+	// 1. Full expanded dashes: 2001-0db8-0000-0000-0000-0000-0000-0001
+	groups := make([]string, 8)
+	for i := 0; i < 8; i++ {
+		groups[i] = fmt.Sprintf("%02x%02x", ip16[i*2], ip16[i*2+1])
+	}
+	fullExpanded := strings.Join(groups, "-")
+
+	// 2. Compressed dashes: 2001-db8--1 (Go's net.IP.String() with colons replaced)
+	compressed := strings.ReplaceAll(ip.String(), ":", "-")
+	compressed = strings.ToLower(compressed)
+
+	// 3. Reversed nibble dashes: 32 hex nibbles in reverse order (mirrors ip6.arpa zone format)
+	nibbles := make([]byte, 32)
+	for i := 0; i < 16; i++ {
+		nibbles[i*2] = "0123456789abcdef"[ip16[i]>>4]
+		nibbles[i*2+1] = "0123456789abcdef"[ip16[i]&0x0f]
+	}
+	// Reverse
+	for i, j := 0, len(nibbles)-1; i < j; i, j = i+1, j-1 {
+		nibbles[i], nibbles[j] = nibbles[j], nibbles[i]
+	}
+	var nibbleBuilder strings.Builder
+	for i, b := range nibbles {
+		if i > 0 {
+			nibbleBuilder.WriteByte('-')
+		}
+		nibbleBuilder.WriteByte(b)
+	}
+	reversedNibble := nibbleBuilder.String()
+
+	// Check each representation: exact match as first label, or embedded with dash boundary
+	for _, repr := range []string{fullExpanded, compressed, reversedNibble} {
+		if firstLabel == repr {
+			return "*." + suffix
+		}
+		if strings.HasSuffix(firstLabel, "-"+repr) {
+			return "*." + suffix
+		}
+	}
+
+	return ""
+}
+
 // ConsolidateResults groups IPs with the same PTR record into CIDR networks.
 // It performs two consolidation passes:
 //  1. Exact PTR match: IPs with identical PTR records are grouped together.
@@ -243,7 +314,12 @@ func ConsolidateResults(results []LookupResult) []ConsolidatedResult {
 	var unmatched []singleEntry
 
 	for _, s := range singles {
-		pattern := extractPTRPattern(s.ip, s.ptr)
+		var pattern string
+		if s.ip.To4() != nil {
+			pattern = extractPTRPattern(s.ip, s.ptr)
+		} else {
+			pattern = extractIPv6PTRPattern(s.ip, s.ptr)
+		}
 		if pattern != "" {
 			patternGroups[pattern] = append(patternGroups[pattern], s.ip)
 		} else {
