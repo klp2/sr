@@ -9,6 +9,8 @@ import (
 )
 
 var (
+	version = "dev"
+
 	concurrency  int
 	outputFormat string
 	resolvedOnly bool
@@ -48,6 +50,8 @@ Examples:
 		Args: cobra.MinimumNArgs(1),
 		RunE: run,
 	}
+
+	rootCmd.Version = version
 
 	rootCmd.Flags().IntVarP(&concurrency, "concurrency", "c", 50, "Number of concurrent lookups")
 	rootCmd.Flags().StringVarP(&outputFormat, "output", "o", "text", "Output format: text, json")
