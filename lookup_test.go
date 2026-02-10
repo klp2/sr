@@ -145,20 +145,23 @@ func TestLookupWorkersConcurrency(t *testing.T) {
 }
 
 func TestCustomResolver(t *testing.T) {
-	r := CustomResolver("8.8.8.8")
+	r, err := CustomResolver("8.8.8.8")
+	if err != nil {
+		t.Fatalf("CustomResolver returned error: %v", err)
+	}
 	nr, ok := r.(*NetResolver)
 	if !ok {
 		t.Fatal("CustomResolver should return a *NetResolver")
 	}
 	if !nr.PreferGo {
-		t.Error("CustomResolver should set PreferGo = true")
+		t.Error("PreferGo should be true")
+	}
+	if nr.Dial == nil {
+		t.Error("Dial should be set")
 	}
 }
 
 func TestCustomResolverHostPort(t *testing.T) {
-	// Verify that bare IPs get :53 appended and host:port is preserved.
-	// We test this by extracting the same normalization logic that
-	// CustomResolver uses, then verifying the resolver is properly wired.
 	tests := []struct {
 		input string
 		want  string
@@ -166,31 +169,37 @@ func TestCustomResolverHostPort(t *testing.T) {
 		{"8.8.8.8", "8.8.8.8:53"},
 		{"1.1.1.1:5353", "1.1.1.1:5353"},
 		{"[::1]:53", "[::1]:53"},
+		{"::1", "[::1]:53"},
+		{"2001:4860:4860::8888", "[2001:4860:4860::8888]:53"},
 		{"dns.example.com", "dns.example.com:53"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			// Apply the same normalization as CustomResolver
-			server := tt.input
-			if _, _, err := net.SplitHostPort(server); err != nil {
-				server = net.JoinHostPort(server, "53")
+			got, err := normalizeServer(tt.input)
+			if err != nil {
+				t.Fatalf("normalizeServer(%q) returned error: %v", tt.input, err)
 			}
-			if server != tt.want {
-				t.Errorf("normalized %q = %q, want %q", tt.input, server, tt.want)
+			if got != tt.want {
+				t.Errorf("normalizeServer(%q) = %q, want %q", tt.input, got, tt.want)
 			}
+		})
+	}
+}
 
-			// Also verify CustomResolver returns a properly configured resolver
-			r := CustomResolver(tt.input)
-			nr, ok := r.(*NetResolver)
-			if !ok {
-				t.Fatal("CustomResolver should return *NetResolver")
-			}
-			if !nr.PreferGo {
-				t.Error("PreferGo should be true")
-			}
-			if nr.Dial == nil {
-				t.Error("Dial should be set")
+func TestCustomResolverInvalidServer(t *testing.T) {
+	tests := []struct {
+		name   string
+		server string
+	}{
+		{"empty", ""},
+		{"whitespace", "   "},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := CustomResolver(tt.server)
+			if err == nil {
+				t.Errorf("CustomResolver(%q) should return an error", tt.server)
 			}
 		})
 	}

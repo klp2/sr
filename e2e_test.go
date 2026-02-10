@@ -505,31 +505,44 @@ func TestE2E_CustomServer(t *testing.T) {
 		t.Skip("skipping e2e test in short mode")
 	}
 
-	cmd := exec.Command("go", "run", ".", "--server", "8.8.8.8", "8.8.8.8/32")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("command failed: %v\noutput: %s", err, output)
-	}
+	for _, flag := range []string{"--server", "-S"} {
+		t.Run(flag, func(t *testing.T) {
+			cmd := exec.Command("go", "run", ".", flag, "8.8.8.8", "8.8.8.8/32")
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("command failed: %v\noutput: %s", err, output)
+			}
 
-	outStr := string(output)
-	if !strings.Contains(outStr, "dns.google") {
-		t.Errorf("output missing dns.google: %s", outStr)
+			if !strings.Contains(string(output), "dns.google") {
+				t.Errorf("output missing dns.google: %s", output)
+			}
+		})
 	}
 }
 
-func TestE2E_CustomServerShortFlag(t *testing.T) {
+func TestE2E_CustomServerWithPort(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping e2e test in short mode")
 	}
 
-	cmd := exec.Command("go", "run", ".", "-S", "8.8.8.8", "8.8.8.8/32")
+	cmd := exec.Command("go", "run", ".", "--server", "8.8.8.8:53", "8.8.8.8/32")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("command failed: %v\noutput: %s", err, output)
 	}
 
-	outStr := string(output)
-	if !strings.Contains(outStr, "dns.google") {
-		t.Errorf("output missing dns.google: %s", outStr)
+	if !strings.Contains(string(output), "dns.google") {
+		t.Errorf("output missing dns.google: %s", output)
+	}
+}
+
+func TestE2E_InvalidServer(t *testing.T) {
+	cmd := exec.Command("go", "run", ".", "--server", "   ", "8.8.8.8/32")
+	output, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatal("expected error for whitespace-only server")
+	}
+	if !strings.Contains(string(output), "invalid DNS server address") {
+		t.Errorf("expected clear error message, got: %s", output)
 	}
 }

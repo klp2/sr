@@ -100,7 +100,11 @@ func run(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 	var resolver Resolver
 	if dnsServer != "" {
-		resolver = CustomResolver(dnsServer)
+		var err error
+		resolver, err = CustomResolver(dnsServer)
+		if err != nil {
+			return err
+		}
 	} else {
 		resolver = DefaultResolver()
 	}

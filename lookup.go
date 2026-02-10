@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net"
+	"strings"
 	"sync"
 )
 
@@ -34,9 +36,32 @@ func DefaultResolver() Resolver {
 
 // CustomResolver returns a resolver that queries the given DNS server.
 // The server can be an IP, hostname, or host:port. If no port is given, :53 is used.
-func CustomResolver(server string) Resolver {
-	if _, _, err := net.SplitHostPort(server); err != nil {
-		server = net.JoinHostPort(server, "53")
+// normalizeServer ensures a server address has a port, defaulting to :53.
+func normalizeServer(server string) (string, error) {
+	host, port, err := net.SplitHostPort(server)
+	if err != nil {
+		// Assume bare host/IP without port
+		host = server
+		port = "53"
+	}
+	if port == "" {
+		port = "53"
+	}
+	if strings.TrimSpace(host) == "" {
+		return "", fmt.Errorf("invalid DNS server address %q: empty hostname", server)
+	}
+	addr := net.JoinHostPort(host, port)
+	// Validate the result is well-formed
+	if _, _, err := net.SplitHostPort(addr); err != nil {
+		return "", fmt.Errorf("invalid DNS server address %q: %w", server, err)
+	}
+	return addr, nil
+}
+
+func CustomResolver(server string) (Resolver, error) {
+	server, err := normalizeServer(server)
+	if err != nil {
+		return nil, err
 	}
 	return &NetResolver{&net.Resolver{
 		PreferGo: true,
@@ -44,7 +69,7 @@ func CustomResolver(server string) Resolver {
 			d := net.Dialer{}
 			return d.DialContext(ctx, "udp", server)
 		},
-	}}
+	}}, nil
 }
 
 // LookupWorkers performs concurrent PTR lookups using a worker pool.
