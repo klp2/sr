@@ -34,7 +34,7 @@ golangci-lint run
 ## Adding features
 
 Phase 2 stuff that's not done yet:
-- Custom DNS server (`--server`)
+- ~~Custom DNS server (`--server`)~~ Done
 - CSV output
 - IPv6 support
 - Stdin input

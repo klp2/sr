@@ -20,6 +20,7 @@ var (
 	sortOutput   bool
 	expandOutput bool
 	maxIPs       uint64
+	dnsServer    string
 )
 
 func main() {
@@ -48,7 +49,9 @@ Examples:
   sr 2001:4860:4860::8888/128       # Google DNS IPv6
   sr 2001:db8::/126                 # Small IPv6 range (4 addresses)
   sr --max-ips 1000000 10.0.0.0/8   # Override default limit
-  sr --max-ips 100 2001:db8::/64    # Sample first 100 of huge range`,
+  sr --max-ips 100 2001:db8::/64    # Sample first 100 of huge range
+  sr --server 8.8.8.8 10.0.0.0/24  # Use specific DNS server
+  sr -S 1.1.1.1 192.168.1.0/24     # Short form`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: run,
 	}
@@ -62,6 +65,7 @@ Examples:
 	rootCmd.Flags().BoolVarP(&sortOutput, "sort", "s", false, "Sort output by IP address (only with --expand)")
 	rootCmd.Flags().BoolVarP(&expandOutput, "expand", "e", false, "Show per-IP output instead of consolidated CIDRs")
 	rootCmd.Flags().Uint64VarP(&maxIPs, "max-ips", "m", 65536, "Maximum IPs to process (large ranges truncated to this)")
+	rootCmd.Flags().StringVarP(&dnsServer, "server", "S", "", "DNS server to use (default: system resolver)")
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -94,7 +98,16 @@ func run(cmd *cobra.Command, args []string) error {
 
 	// Perform lookups
 	ctx := context.Background()
-	resolver := DefaultResolver()
+	var resolver Resolver
+	if dnsServer != "" {
+		var err error
+		resolver, err = CustomResolver(dnsServer)
+		if err != nil {
+			return err
+		}
+	} else {
+		resolver = DefaultResolver()
+	}
 	resultChan := LookupWorkers(ctx, ips, concurrency, resolver)
 
 	// Collect results
