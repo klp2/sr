@@ -32,6 +32,21 @@ func DefaultResolver() Resolver {
 	return &NetResolver{&net.Resolver{}}
 }
 
+// CustomResolver returns a resolver that queries the given DNS server.
+// The server can be an IP, hostname, or host:port. If no port is given, :53 is used.
+func CustomResolver(server string) Resolver {
+	if _, _, err := net.SplitHostPort(server); err != nil {
+		server = net.JoinHostPort(server, "53")
+	}
+	return &NetResolver{&net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			d := net.Dialer{}
+			return d.DialContext(ctx, "udp", server)
+		},
+	}}
+}
+
 // LookupWorkers performs concurrent PTR lookups using a worker pool.
 // Results are sent to the returned channel as they complete.
 func LookupWorkers(ctx context.Context, ips []net.IP, concurrency int, resolver Resolver) <-chan LookupResult {

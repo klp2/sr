@@ -143,3 +143,55 @@ func TestLookupWorkersConcurrency(t *testing.T) {
 		t.Errorf("got %d results, want 100", count)
 	}
 }
+
+func TestCustomResolver(t *testing.T) {
+	r := CustomResolver("8.8.8.8")
+	nr, ok := r.(*NetResolver)
+	if !ok {
+		t.Fatal("CustomResolver should return a *NetResolver")
+	}
+	if !nr.PreferGo {
+		t.Error("CustomResolver should set PreferGo = true")
+	}
+}
+
+func TestCustomResolverHostPort(t *testing.T) {
+	// Verify that bare IPs get :53 appended and host:port is preserved.
+	// We test this by extracting the same normalization logic that
+	// CustomResolver uses, then verifying the resolver is properly wired.
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"8.8.8.8", "8.8.8.8:53"},
+		{"1.1.1.1:5353", "1.1.1.1:5353"},
+		{"[::1]:53", "[::1]:53"},
+		{"dns.example.com", "dns.example.com:53"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			// Apply the same normalization as CustomResolver
+			server := tt.input
+			if _, _, err := net.SplitHostPort(server); err != nil {
+				server = net.JoinHostPort(server, "53")
+			}
+			if server != tt.want {
+				t.Errorf("normalized %q = %q, want %q", tt.input, server, tt.want)
+			}
+
+			// Also verify CustomResolver returns a properly configured resolver
+			r := CustomResolver(tt.input)
+			nr, ok := r.(*NetResolver)
+			if !ok {
+				t.Fatal("CustomResolver should return *NetResolver")
+			}
+			if !nr.PreferGo {
+				t.Error("PreferGo should be true")
+			}
+			if nr.Dial == nil {
+				t.Error("Dial should be set")
+			}
+		})
+	}
+}
