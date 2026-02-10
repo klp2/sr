@@ -586,6 +586,171 @@ func TestConsolidateResultsMixedPatternAndExact(t *testing.T) {
 	}
 }
 
+func TestExtractIPv6PTRPattern(t *testing.T) {
+	tests := []struct {
+		name string
+		ip   string
+		ptr  string
+		want string
+	}{
+		// Full expanded dashes: 2001-0db8-0000-0000-0000-0000-0000-0001
+		{
+			name: "full expanded dashes",
+			ip:   "2001:db8::1",
+			ptr:  "2001-0db8-0000-0000-0000-0000-0000-0001.static.isp.net",
+			want: "*.static.isp.net",
+		},
+		// Compressed dashes: 2001-db8--1
+		{
+			name: "compressed dashes",
+			ip:   "2001:db8::1",
+			ptr:  "2001-db8--1.static.isp.net",
+			want: "*.static.isp.net",
+		},
+		// Reversed nibble dashes
+		{
+			name: "reversed nibble dashes",
+			ip:   "2001:db8::1",
+			ptr:  "1-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-8-b-d-0-1-0-0-2.isp.net",
+			want: "*.isp.net",
+		},
+		// Embedded with prefix
+		{
+			name: "embedded full expanded with prefix",
+			ip:   "2001:db8::1",
+			ptr:  "host-2001-0db8-0000-0000-0000-0000-0000-0001.example.com",
+			want: "*.example.com",
+		},
+		{
+			name: "embedded compressed with prefix",
+			ip:   "2001:db8::1",
+			ptr:  "host-2001-db8--1.example.com",
+			want: "*.example.com",
+		},
+		{
+			name: "embedded reversed nibble with prefix",
+			ip:   "2001:db8::1",
+			ptr:  "host-1-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-8-b-d-0-1-0-0-2.isp.net",
+			want: "*.isp.net",
+		},
+		// No match
+		{
+			name: "no match",
+			ip:   "2001:db8::1",
+			ptr:  "mail.google.com",
+			want: "",
+		},
+		// IPv4 should be skipped
+		{
+			name: "ipv4 skipped",
+			ip:   "10.0.0.1",
+			ptr:  "host.example.com",
+			want: "",
+		},
+		// No dot in PTR (single label)
+		{
+			name: "no dot in ptr",
+			ip:   "2001:db8::1",
+			ptr:  "just-a-hostname",
+			want: "",
+		},
+		// Empty PTR
+		{
+			name: "empty ptr",
+			ip:   "2001:db8::1",
+			ptr:  "",
+			want: "",
+		},
+		// Suffix too short
+		{
+			name: "suffix too short",
+			ip:   "2001:db8::1",
+			ptr:  "2001-0db8-0000-0000-0000-0000-0000-0001.com",
+			want: "",
+		},
+		// Case insensitive matching
+		{
+			name: "case insensitive",
+			ip:   "2001:db8::ab",
+			ptr:  "2001-0DB8-0000-0000-0000-0000-0000-00AB.static.isp.net",
+			want: "*.static.isp.net",
+		},
+		// Different IPv6 address with more hex variety
+		{
+			name: "full address expanded",
+			ip:   "2001:db8:85a3::8a2e:370:7334",
+			ptr:  "2001-0db8-85a3-0000-0000-8a2e-0370-7334.example.com",
+			want: "*.example.com",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ip := net.ParseIP(tt.ip)
+			got := extractIPv6PTRPattern(ip, tt.ptr)
+			if got != tt.want {
+				t.Errorf("extractIPv6PTRPattern(%s, %q) = %q, want %q", tt.ip, tt.ptr, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestConsolidateResultsIPv6Patterns(t *testing.T) {
+	// Simulate ISP-style IPv6 PTR records with embedded addresses
+	results := []LookupResult{
+		{IP: net.ParseIP("2001:db8::1"), PTR: "2001-0db8-0000-0000-0000-0000-0000-0001.static.isp.net"},
+		{IP: net.ParseIP("2001:db8::2"), PTR: "2001-0db8-0000-0000-0000-0000-0000-0002.static.isp.net"},
+		{IP: net.ParseIP("2001:db8::3"), PTR: "2001-0db8-0000-0000-0000-0000-0000-0003.static.isp.net"},
+	}
+
+	got := ConsolidateResults(results)
+
+	// 3 IPs → 2 CIDRs (2001:db8::1/128 + 2001:db8::2/127), both under the same pattern
+	if len(got) != 2 {
+		t.Fatalf("expected 2 consolidated results, got %d", len(got))
+	}
+	for _, r := range got {
+		if r.PTR != "*.static.isp.net" {
+			t.Errorf("PTR = %q, want %q", r.PTR, "*.static.isp.net")
+		}
+	}
+}
+
+func TestConsolidateResultsMixedIPVersions(t *testing.T) {
+	results := []LookupResult{
+		// IPv4 pattern group
+		{IP: net.ParseIP("192.168.1.1").To4(), PTR: "192-168-1-1.example.com"},
+		{IP: net.ParseIP("192.168.1.2").To4(), PTR: "192-168-1-2.example.com"},
+		// IPv6 pattern group
+		{IP: net.ParseIP("2001:db8::1"), PTR: "2001-0db8-0000-0000-0000-0000-0000-0001.static.isp.net"},
+		{IP: net.ParseIP("2001:db8::2"), PTR: "2001-0db8-0000-0000-0000-0000-0000-0002.static.isp.net"},
+		// Non-matching entry
+		{IP: net.ParseIP("10.0.0.1").To4(), PTR: "mail.google.com"},
+	}
+
+	got := ConsolidateResults(results)
+
+	// Verify all expected patterns appear in results
+	patterns := make(map[string]bool)
+	for _, r := range got {
+		patterns[r.PTR] = true
+	}
+
+	if !patterns["*.example.com"] {
+		t.Error("missing IPv4 pattern *.example.com")
+	}
+	if !patterns["*.static.isp.net"] {
+		t.Error("missing IPv6 pattern *.static.isp.net")
+	}
+	if !patterns["mail.google.com"] {
+		t.Error("missing non-matching entry mail.google.com")
+	}
+	// 2 IPv4 CIDRs + 2 IPv6 CIDRs + 1 unmatched = 5
+	if len(got) != 5 {
+		t.Errorf("expected 5 consolidated results, got %d", len(got))
+	}
+}
+
 // mustParseCIDR parses a CIDR string or panics.
 func mustParseCIDR(s string) *net.IPNet {
 	_, n, err := net.ParseCIDR(s)
